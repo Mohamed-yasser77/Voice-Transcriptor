@@ -1,0 +1,40 @@
+{
+  "productName": "Voice Transcriptor",
+  "version": "0.1.0",
+  "identifier": "com.voicetranscriptor.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Voice Transcriptor",
+        "width": 320,
+        "height": 220,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": ["../sidecar/whisper_server"]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
