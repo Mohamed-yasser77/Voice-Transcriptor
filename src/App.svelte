@@ -81,7 +81,7 @@
 <main class="app" data-state={state} on:click={startRecording} style="cursor: pointer;">
   <div class="header">
     <TrayIcon {state} />
-    <h1 class="title">VoiceDictate</h1>
+    <h1 class="title">Voice Transcriptor</h1>
   </div>
 
   <div class="status-pill" data-state={state}>
