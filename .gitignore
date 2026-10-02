@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+target/
+src-tauri/target/
+sidecar/build/
+sidecar/dist/
+scratch/
+*.exe
+
+# Environment and sensitive keys
+.env
+.env.*
+!.env.example
+api-key.txt
+*.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# OS files
+.DS_Store
+Thumbs.db
