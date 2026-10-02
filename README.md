@@ -1,4 +1,4 @@
-# Voice Transcriptor 🎙️⚡
+# Voice Transcriptor
 
 An ultra-low-latency, local-first voice dictation system built with **Tauri 2.0 (Rust)**, **SvelteKit**, and a hardware-accelerated **faster-whisper (CUDA FP16)** sidecar.
 
@@ -6,7 +6,7 @@ Dictate text into any active application (VS Code, Chrome, Slack, Discord, Termi
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 * **Sub-600ms Turnaround Latency**: From key-release to text injection on your screen.
 * **Hardware-Accelerated STT**: Runs OpenAI Whisper (`base.en`) on local NVIDIA GPUs using **CTranslate2 (CUDA FP16)**.
@@ -17,7 +17,7 @@ Dictate text into any active application (VS Code, Chrome, Slack, Discord, Termi
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -31,7 +31,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 * **Core Shell**: [Tauri 2.0](https://tauri.app/) (Rust)
 * **Audio Engine**: [`cpal`](https://github.com/RustAudio/cpal) (16kHz / mono / f32) + [`webrtc-vad`](https://crates.io/crates/webrtc-vad)
@@ -41,7 +41,7 @@ flowchart LR
 
 ---
 
-## ⚙️ Requirements
+## Requirements
 
 * **OS**: Windows 10 / 11 (64-bit)
 * **GPU (Optional, Recommended)**: NVIDIA GPU with CUDA support for sub-600ms inference (falls back to multi-core CPU automatically)
@@ -52,7 +52,7 @@ flowchart LR
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Install Dependencies
 ```bash
@@ -82,12 +82,9 @@ npm run tauri dev
 
 ---
 
-## 📄 Documentation
+## Documentation
 
 * [Architecture Blueprint](./architecture.md)
 * [Final Engineering & Latency Report](./final_report.md)
 
 ---
-
-## 📜 License
-MIT License. Created by Mohamed Yasser.
