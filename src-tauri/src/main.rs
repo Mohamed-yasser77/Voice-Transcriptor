@@ -1,3 +1,4 @@
+/// Pipeline Optimization: Suppress backlog accumulation by filtering intermediate partial frames.
 // main.rs — Tauri app entry point.
 // Registers tray icon, global hotkey, and orchestrates the full pipeline.
 
