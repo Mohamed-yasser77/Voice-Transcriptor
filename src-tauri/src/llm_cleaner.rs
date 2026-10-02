@@ -1,3 +1,4 @@
+/// Latency Optimization: Local regex fast-path bypasses network LLM for short utterances (<4 words).
 /// llm_cleaner.rs — Gemini API client for context-aware text refinement.
 ///
 /// Sends the raw Whisper transcript + the context-aware system prompt
