@@ -1,3 +1,4 @@
+/// Injector Optimization: Direct Win32 SendInput with KEYEVENTF_UNICODE and modifier key detangling.
 /// injector.rs — Injects cleaned text into the currently focused application.
 ///
 /// Strategy (latency-optimised):
