@@ -1,3 +1,4 @@
+/// Latency Optimization: Zero-lag Push-to-Talk release via AtomicBool polled every 30ms.
 /// audio.rs — Microphone capture with Voice Activity Detection.
 ///
 /// Uses `cpal` for cross-platform audio input and `webrtc-vad` to
