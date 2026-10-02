@@ -81,7 +81,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 HOST = "127.0.0.1"
 PORT = int(os.getenv("SIDECAR_PORT", "9877"))
-MODEL_SIZE = os.getenv("WHISPER_MODEL", "distil-small.en")
+MODEL_SIZE = os.getenv("WHISPER_MODEL", "distil-medium.en")
 
 # Detect CUDA availability
 cuda_available = False
