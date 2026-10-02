@@ -1,0 +1,56 @@
+[package]
+name = "voice-dictation"
+version = "0.1.0"
+description = "Local-First Contextual Voice Dictation — context-aware, privacy-first"
+authors = []
+license = ""
+repository = ""
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml       = "0.8"
+
+tokio = { version = "1", features = ["full"] }
+
+cpal       = "0.15"
+webrtc-vad = "0.4"
+
+reqwest = { version = "0.12", features = ["json"] }
+
+thiserror  = "1"
+log        = "0.4"
+env_logger = "0.11"
+dirs       = "5"
+base64     = "0.22"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+
+[profile.release]
+opt-level    = "s"   # optimize for binary size
+lto          = true
+codegen-units = 1
+strip        = true
