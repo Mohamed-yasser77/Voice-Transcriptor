@@ -1,0 +1,5 @@
+faster-whisper==1.0.3
+# torch and torchaudio are NOT pinned here — use the existing system installation.
+# The user has torch 2.7.1+cu118 (CUDA) which is compatible with faster-whisper 1.0.3.
+# If installing fresh (no existing torch): pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+pyinstaller==6.6.0
