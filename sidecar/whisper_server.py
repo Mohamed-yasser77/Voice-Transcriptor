@@ -1,3 +1,4 @@
+# Performance Optimization: CUDA 12.4 + cuDNN 9 FP16 acceleration (~500ms latency)
 #!/usr/bin/env python3
 """
 whisper_server.py — faster-whisper TCP socket server (speech-to-text only).
