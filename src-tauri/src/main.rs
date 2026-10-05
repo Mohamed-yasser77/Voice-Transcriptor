@@ -120,6 +120,14 @@ async fn start_recording(
     Ok(())
 }
 
+#[tauri::command]
+async fn hide_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("main") {
+        w.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 
 // ---------------------------------------------------------------------------
 // Pipeline runner
@@ -224,9 +232,10 @@ async fn run_pipeline(
                             app_handle: Some(app.clone()),
                             previous_hwnd: state.lock().await.previous_hwnd,
                         });
-                        state.lock().await.last_transcript = text_to_inject;
+                        state.lock().await.last_transcript = text_to_inject.clone();
                     }
                     
+                    app.emit("pipeline-event", format!("CleanedTextReady:{text_to_inject}")).ok();
                     app.emit("pipeline-event", "InjectionComplete").ok();
                     break;
                 }
@@ -247,8 +256,50 @@ async fn run_pipeline(
 // App setup
 // ---------------------------------------------------------------------------
 
+#[cfg(test)]
+mod shortcut_tests {
+    use std::str::FromStr;
+    #[test]
+    fn test_shortcut_parsing() {
+        let s = tauri_plugin_global_shortcut::Shortcut::from_str("alt+shift+v");
+        assert!(s.is_ok(), "Shortcut parsing failed: {:?}", s.err());
+    }
+}
+
 fn main() {
-    env_logger::init();
+    let log_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("app.log");
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(&log_path)
+    {
+        let _ = env_logger::Builder::from_default_env()
+            .filter_level(log::LevelFilter::Info)
+            .target(env_logger::Target::Pipe(Box::new(file)))
+            .try_init();
+    } else {
+        let _ = env_logger::try_init();
+    }
+
+    log::info!("=== Voice Dictation Starting ===");
+
+    let panic_log_path = log_path.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = format!("[PANIC] {info}");
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(&panic_log_path)
+        {
+            use std::io::Write;
+            let _ = writeln!(file, "{msg}");
+        }
+        log::error!("{msg}");
+    }));
 
     // Load .env from the project root (dev) or app bundle directory (production)
     let env_candidates = [
@@ -282,7 +333,7 @@ fn main() {
         }
     }
 
-    log::info!("Voice Dictation starting...");
+    log::info!("Voice Dictation initializing...");
 
     let cfg = config::load();
     let profiles = ContextProfile::built_ins();
@@ -303,21 +354,25 @@ fn main() {
 
     let state_clone = Arc::clone(&state);
 
-    tauri::Builder::default()
-        .plugin(
+    log::info!("State initialized, configuring shortcuts...");
+    let shortcut_builder = match tauri_plugin_global_shortcut::Builder::new()
+        .with_shortcuts(["alt+shift+v", "ctrl+shift+v"])
+    {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("Dual shortcut setup warning ({e}), falling back to alt+shift+v only");
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcuts(["alt+shift+v"])
-                .unwrap()
-                .with_handler(move |app, shortcut, event| {
-                    let matches_hotkey = shortcut.matches(
-                        tauri_plugin_global_shortcut::Modifiers::ALT
-                            | tauri_plugin_global_shortcut::Modifiers::SHIFT,
-                        tauri_plugin_global_shortcut::Code::KeyV,
-                    );
+                .expect("Failed to initialize shortcut plugin with default hotkey")
+        }
+    };
+    log::info!("Shortcut builder ready. Initializing tauri::Builder...");
 
-                    if !matches_hotkey {
-                        return;
-                    }
+    let builder = tauri::Builder::default()
+        .plugin(
+            shortcut_builder
+                .with_handler(move |app, shortcut, event| {
+                    log::info!("Global shortcut event received: {:?} for {:?}", event.state(), shortcut);
 
                     let app_clone = app.clone();
                     let state = app.state::<Arc<tokio::sync::Mutex<AppState>>>().inner().clone();
@@ -359,6 +414,7 @@ fn main() {
 
                                 if let Some(w) = app_clone.get_webview_window("main") {
                                     w.set_always_on_top(true).ok();
+                                    w.center().ok();
                                     w.show().ok();
                                     w.unminimize().ok();
                                 }
@@ -383,9 +439,6 @@ fn main() {
                                     log::info!("Hotkey UP: stopping recording (push-to-talk release)");
                                     let _ = tx.try_send(());
                                     app_clone.emit("pipeline-event", "RecordingStopped").ok();
-                                    if let Some(w) = app_clone.get_webview_window("main") {
-                                        w.hide().ok();
-                                    }
                                 }
                                 // If stop_tx was None, this is a duplicate UP event — ignore
                             });
@@ -499,14 +552,23 @@ fn main() {
             let show = MenuItem::with_id(app, "show", "Open", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
-            let icon = app.default_window_icon()
-                .ok_or("No default icon found")?
-                .clone();
+            let icon = match tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico")) {
+                Ok(img) => img,
+                Err(e) => {
+                    log::warn!("Embedded icon.ico parse note ({e}), checking default_window_icon...");
+                    app.default_window_icon()
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            let rgba = vec![139u8, 92, 246, 255].repeat(16 * 16);
+                            tauri::image::Image::new_owned(rgba, 16, 16)
+                        })
+                }
+            };
             TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => app.exit(0),
+                    "quit" => std::process::exit(0),
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
                             w.show().ok();
@@ -525,20 +587,44 @@ fn main() {
                 })
                 .build(app)?;
 
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            for sc in ["alt+shift+v", "ctrl+shift+v"] {
+                if app.global_shortcut().is_registered(sc) {
+                    log::info!("Shortcut '{sc}' is actively registered with Windows.");
+                } else {
+                    log::warn!("Shortcut '{sc}' could NOT be registered with Windows!");
+                }
+            }
+
+            println!(">>> setup: app ready and running. Waiting for hotkey...");
             log::info!("App ready and running. Waiting for hotkey...");
 
-
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                window.hide().ok();
+                api.prevent_close();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
             get_last_transcript,
             set_mode,
             get_mode,
-            start_recording
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+            start_recording,
+            hide_window
+        ]);
+
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("Error while building tauri application");
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            api.prevent_exit();
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------

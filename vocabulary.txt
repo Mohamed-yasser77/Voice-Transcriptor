@@ -1,0 +1,45 @@
+# Custom Vocabulary & Proper Nouns for Voice Dictation
+# Add your name, project names, technical terms, jargon, or acronyms below.
+# Each entry will be injected as prior context into Whisper to guarantee accurate transcription.
+# Changes to this file take effect instantly without restarting.
+
+# Personal & User Names
+Mohamed Yasser
+Mohamed
+Yasser
+Kuz
+
+# Project & Tech Stack
+Antigravity
+Tauri
+Svelte
+Vite
+faster-whisper
+cuDNN
+PyTorch
+CTranslate2
+CUDA
+WebRTC VAD
+
+# Common Technical & Developer Jargon
+TypeScript
+Rust
+Python
+tokio
+serde
+reqwest
+PostgreSQL
+Kubernetes
+Docker
+GraphQL
+REST API
+OAuth2
+JWT
+API
+PR
+URL
+JSON
+HTML
+CSS
+CLI
+UI/UX

@@ -1,4 +1,4 @@
-<!-- App.svelte — Main tray popup UI -->
+<!-- App.svelte — Tray popup & live dictation overlay -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
@@ -15,26 +15,51 @@
   let unlisten: (() => void) | null = null;
   let hideTimeout: ReturnType<typeof setTimeout>;
 
-  const scheduleHide = () => {
+  const doHide = async () => {
+    try {
+      await invoke('hide_window');
+    } catch {
+      getCurrentWindow().hide().catch(console.error);
+    }
+  };
+
+  const scheduleHide = (delay = 3500) => {
     clearTimeout(hideTimeout);
     hideTimeout = setTimeout(() => {
       if (state === 'idle') {
-        getCurrentWindow().hide().catch(console.error);
+        doHide();
       }
-    }, 4000);
+    }, delay);
+  };
+
+  const closeWindow = () => {
+    clearTimeout(hideTimeout);
+    doHide();
   };
 
   onMount(async () => {
+    // Initial fetch from backend so window shows current state immediately when opened
+    try {
+      const prev = await invoke<string>('get_last_transcript');
+      if (prev) lastTranscript = prev;
+      const st = await invoke<string>('get_status');
+      if (st === 'recording') state = 'recording';
+    } catch (e) {
+      console.error('Failed to fetch initial state:', e);
+    }
+
     unlisten = await listen<string>('pipeline-event', (event) => {
       const msg = event.payload;
 
       if (msg === 'RecordingStarted') {
         state = 'recording';
         errorMsg = '';
+        currentTranscript = '';
         clearTimeout(hideTimeout);
+        getCurrentWindow().show().catch(console.error);
       } else if (msg === 'RecordingStopped') {
-        state = 'idle';
-        getCurrentWindow().hide().catch(console.error);
+        // Hotkey released: keep window open and transition to processing
+        state = 'processing';
       } else if (msg === 'AudioCaptured') {
         state = 'processing';
       } else if (msg.startsWith('PartialTranscriptReady:')) {
@@ -46,15 +71,15 @@
         lastTranscript = msg.replace('CleanedTextReady:', '');
       } else if (msg === 'InjectionComplete' || msg === 'Idle') {
         state = 'idle';
-        if (currentTranscript) {
+        if (currentTranscript && !lastTranscript) {
           lastTranscript = currentTranscript;
         }
         currentTranscript = '';
-        scheduleHide();
+        scheduleHide(3500);
       } else if (msg.startsWith('Error:')) {
         state = 'idle';
         errorMsg = msg.replace('Error:', '').trim();
-        scheduleHide();
+        scheduleHide(5000);
       }
     });
   });
@@ -67,7 +92,7 @@
   const stateLabel: Record<State, string> = {
     idle: 'Ready — Hold Alt+Shift+V to dictate',
     recording: 'Listening...',
-    processing: 'Processing...',
+    processing: 'Transcribing & Cleaning...',
   };
 
   const startRecording = async () => {
@@ -78,10 +103,15 @@
   };
 </script>
 
-<main class="app" data-state={state} on:click={startRecording} style="cursor: pointer;">
+<main class="app" data-state={state}>
   <div class="header">
-    <TrayIcon {state} />
-    <h1 class="title">Voice Transcriptor</h1>
+    <div class="header-left" on:click={startRecording} role="button" tabindex="0">
+      <TrayIcon {state} />
+      <h1 class="title">Voice Transcriptor</h1>
+    </div>
+    <button class="close-btn" on:click={closeWindow} title="Hide overlay" aria-label="Close">
+      ✕
+    </button>
   </div>
 
   <div class="status-pill" data-state={state}>
@@ -89,28 +119,37 @@
     <span class="status-text">{stateLabel[state]}</span>
   </div>
 
-  {#if currentTranscript || (state === 'processing' && currentTranscript)}
-    <div class="live-transcript-box">
-      <div class="typing-indicator">
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+  <div class="content-area">
+    {#if currentTranscript || (state === 'processing' && currentTranscript)}
+      <div class="live-transcript-box">
+        <div class="typing-indicator">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+        <p class="live-text">{currentTranscript}</p>
       </div>
-      <p class="live-text">{currentTranscript}</p>
-    </div>
-  {:else if lastTranscript}
-    <div class="transcript-box">
-      <p class="transcript-label">Last injected</p>
-      <p class="transcript-text">{lastTranscript}</p>
-    </div>
-  {/if}
+    {:else if lastTranscript}
+      <div class="transcript-box">
+        <p class="transcript-label">Last Injected</p>
+        <p class="transcript-text">{lastTranscript}</p>
+      </div>
+    {:else}
+      <div class="placeholder-box">
+        <p class="placeholder-text">Hold <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> anywhere to dictate directly into any application.</p>
+      </div>
+    {/if}
 
-  {#if errorMsg}
-    <div class="error-toast" role="alert">
-      ⚠ {errorMsg}
-    </div>
-  {/if}
+    {#if errorMsg}
+      <div class="error-toast" role="alert">
+        ⚠ {errorMsg}
+      </div>
+    {/if}
+  </div>
 
   <footer class="footer">
-    <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd>
+    <span>Hotkey:</span>
+    <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>
+    <span>or</span>
+    <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>
   </footer>
 </main>
 
@@ -123,53 +162,82 @@
 
   :global(body) {
     background: transparent;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+    overflow: hidden;
   }
 
   .app {
-    width: 300px;
-    background: #0f0f14;
-    border: 1px solid #ffffff14;
+    width: 100vw;
+    height: 100vh;
+    box-sizing: border-box;
+    background: #12131a;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 16px;
-    padding: 20px;
+    padding: 16px;
     color: #e8e8f0;
-    backdrop-filter: blur(20px);
-    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
   }
 
   .app[data-state='recording'] {
     border-color: #ef4444aa;
-    box-shadow: 0 0 24px #ef444422;
+    box-shadow: 0 0 24px #ef444433;
   }
 
   .app[data-state='processing'] {
     border-color: #8b5cf6aa;
-    box-shadow: 0 0 24px #8b5cf622;
+    box-shadow: 0 0 24px #8b5cf633;
   }
 
   .header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
     gap: 10px;
-    margin-bottom: 16px;
+    cursor: pointer;
   }
 
   .title {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
-    letter-spacing: -0.3px;
+    letter-spacing: -0.2px;
     color: #f0f0fa;
+  }
+
+  .close-btn {
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: all 0.2s;
+  }
+
+  .close-btn:hover {
+    color: #e5e7eb;
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .status-pill {
     display: flex;
     align-items: center;
     gap: 8px;
-    background: #ffffff0a;
+    background: rgba(255, 255, 255, 0.05);
     border-radius: 100px;
-    padding: 7px 14px;
-    margin-bottom: 16px;
-    transition: background 0.3s;
+    padding: 6px 12px;
+    margin-top: 10px;
+    margin-bottom: 10px;
   }
 
   .status-dot {
@@ -178,6 +246,7 @@
     border-radius: 50%;
     background: #6b7280;
     transition: background 0.3s, box-shadow 0.3s;
+    flex-shrink: 0;
   }
 
   [data-state='recording'] .status-dot {
@@ -194,34 +263,43 @@
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    50% { opacity: 0.3; }
   }
 
   .status-text {
-    font-size: 13px;
+    font-size: 12px;
     color: #9ca3af;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .transcript-box, .live-transcript-box {
-    background: #ffffff08;
-    border: 1px solid #ffffff0f;
-    border-radius: 12px;
-    padding: 14px 16px;
-    margin-bottom: 16px;
+  .content-area {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .transcript-box, .live-transcript-box, .placeholder-box {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px 12px;
+    max-height: 100px;
+    overflow-y: auto;
   }
 
   .live-transcript-box {
-    background: rgba(139, 92, 246, 0.05);
-    border-color: rgba(139, 92, 246, 0.2);
-    box-shadow: 0 4px 20px rgba(139, 92, 246, 0.05);
-    position: relative;
-    overflow: hidden;
+    background: rgba(139, 92, 246, 0.08);
+    border-color: rgba(139, 92, 246, 0.25);
   }
 
   .typing-indicator {
     display: flex;
     gap: 4px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     align-items: center;
   }
 
@@ -246,56 +324,73 @@
     color: #6b7280;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .transcript-text {
-    font-size: 13px;
+    font-size: 12.5px;
     color: #d1d5db;
-    line-height: 1.5;
+    line-height: 1.4;
+    word-break: break-word;
   }
 
   .live-text {
-    font-size: 14px;
+    font-size: 13px;
     color: #f3f4f6;
-    line-height: 1.5;
+    line-height: 1.4;
     font-weight: 500;
+    word-break: break-word;
+  }
+
+  .placeholder-box {
+    border-style: dashed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .placeholder-text {
+    font-size: 11.5px;
+    color: #6b7280;
+    line-height: 1.4;
+    text-align: center;
   }
 
   .footer {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     font-size: 11px;
-    color: #374151;
+    color: #4b5563;
+    padding-top: 6px;
   }
-
-  /* ── Toggle CSS removed (Voice-Only mode is fixed) ── */
 
   .error-toast {
-    background: #7f1d1d22;
-    border: 1px solid #ef444455;
+    background: rgba(127, 29, 29, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
     border-radius: 8px;
-    padding: 8px 12px;
-    margin-bottom: 12px;
-    font-size: 12px;
+    padding: 6px 10px;
+    margin-top: 8px;
+    font-size: 11px;
     color: #fca5a5;
-    animation: fadeIn 0.2s ease;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to   { opacity: 1; transform: translateY(0); }
   }
 
   kbd {
     background: #1f2028;
     border: 1px solid #374151;
     border-radius: 4px;
-    padding: 2px 6px;
+    padding: 1px 5px;
     font-size: 10px;
-    font-family: inherit;
-    color: #6b7280;
+    color: #9ca3af;
+  }
+
+  /* Custom subtle scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
   }
 </style>

@@ -23,6 +23,8 @@ struct TranscribeRequest<'a> {
     audio_b64: String,
     sample_rate: u32,
     profile: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    custom_words: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -51,10 +53,17 @@ pub async fn transcribe(
     let audio_b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
 
     let lower_profile = profile.name.to_lowercase();
+    let custom_words = if profile.vocabulary_hints.is_empty() {
+        None
+    } else {
+        Some(profile.vocabulary_hints.join(", "))
+    };
+
     let request = TranscribeRequest {
         audio_b64,
         sample_rate,
         profile: lower_profile.as_str(),
+        custom_words,
     };
 
     let addr = format!("127.0.0.1:{}", cfg.sidecar_port);
@@ -94,4 +103,35 @@ pub async fn transcribe(
     }
 
     Ok(transcript)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transcribe_request_serialization_with_custom_words() {
+        let req = TranscribeRequest {
+            audio_b64: "dGVzdA==".into(),
+            sample_rate: 16000,
+            profile: "vscode",
+            custom_words: Some("Mohamed Yasser, Kuz, Rust".into()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"profile\":\"vscode\""));
+        assert!(json.contains("\"custom_words\":\"Mohamed Yasser, Kuz, Rust\""));
+    }
+
+    #[test]
+    fn test_transcribe_request_serialization_without_custom_words() {
+        let req = TranscribeRequest {
+            audio_b64: "dGVzdA==".into(),
+            sample_rate: 16000,
+            profile: "default",
+            custom_words: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"profile\":\"default\""));
+        assert!(!json.contains("custom_words"));
+    }
 }

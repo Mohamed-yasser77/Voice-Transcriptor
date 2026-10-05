@@ -9,6 +9,7 @@ use std::path::PathBuf;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     /// Global hotkey combination, e.g. "Alt+Shift+V"
     pub hotkey: String,

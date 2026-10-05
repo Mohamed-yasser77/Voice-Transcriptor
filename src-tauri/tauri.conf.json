@@ -4,7 +4,6 @@
   "identifier": "com.voicetranscriptor.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -13,8 +12,9 @@
       {
         "label": "main",
         "title": "Voice Transcriptor",
-        "width": 320,
-        "height": 220,
+        "width": 340,
+        "height": 280,
+        "center": true,
         "resizable": false,
         "decorations": false,
         "transparent": true,
@@ -28,8 +28,9 @@
     }
   },
   "bundle": {
-    "active": true,
+    "active": false,
     "targets": "all",
+    "icon": ["icons/icon.ico"],
     "externalBin": ["../sidecar/whisper_server"]
   },
   "plugins": {

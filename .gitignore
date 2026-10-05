@@ -10,6 +10,13 @@ sidecar/dist/
 scratch/
 *.exe
 
+# Audio & test recordings
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+
 # Environment and sensitive keys
 .env
 .env.*

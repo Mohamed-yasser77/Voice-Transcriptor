@@ -81,7 +81,8 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 HOST = "127.0.0.1"
 PORT = int(os.getenv("SIDECAR_PORT", "9877"))
-MODEL_SIZE = os.getenv("WHISPER_MODEL", "small.en")
+DEFAULT_MODEL = "small.en"
+MODEL_SIZE = os.getenv("WHISPER_MODEL", DEFAULT_MODEL)
 
 # Detect CUDA availability
 cuda_available = False
@@ -104,10 +105,15 @@ log.info(f"Loading Whisper model: {MODEL_SIZE} ({DEVICE}/{COMPUTE_TYPE})")
 try:
     model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
 except Exception as e:
-    log.error(f"Failed to load Whisper on {DEVICE} ({e}). Falling back to CPU/int8...")
-    DEVICE = "cpu"
-    COMPUTE_TYPE = "int8"
-    model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE, cpu_threads=4)
+    log.error(f"Failed to load Whisper on {DEVICE} ({e}). Falling back to 'small.en'...")
+    try:
+        MODEL_SIZE = "small.en"
+        model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
+    except Exception as e2:
+        log.error(f"Fallback on {DEVICE} failed ({e2}). Falling back to CPU/int8...")
+        DEVICE = "cpu"
+        COMPUTE_TYPE = "int8"
+        model = WhisperModel("small.en", device=DEVICE, compute_type=COMPUTE_TYPE, cpu_threads=4)
 
 log.info("Model loaded. Running warm-up inference...")
 
@@ -126,35 +132,91 @@ log.info(f"Warm-up complete. Whisper server ready on {DEVICE}.")
 
 
 # ---------------------------------------------------------------------------
-# Vocabulary hints per profile (fed to Whisper as initial_prompt to reduce WER)
-# These are STT-layer hints only — LLM prompts live in Rust's pipeline.rs
+# Vocabulary hints per profile & user custom vocabulary (Upgrade 1)
 # ---------------------------------------------------------------------------
-_PROFILE_VOCAB_HINTS: dict[str, str | None] = {
-    "gmail":    None,
-    "slack":    None,
-    "vscode":   (
-        "Programming terms: async, await, mutex, semaphore, "
-        "tokio, reqwest, serde, PyTorch, CUDA, Kubernetes, "
-        "microservices, REST API, GraphQL, OAuth2, JWT."
+_vocab_cache: str = ""
+_vocab_mtime: float = 0.0
+
+def load_custom_vocabulary() -> str:
+    """Load user custom words from vocabulary.txt with automatic mtime reloading."""
+    global _vocab_cache, _vocab_mtime
+    candidates = [
+        _here.parent / "vocabulary.txt",
+        _here / "vocabulary.txt",
+        Path.home() / ".config" / "voice-dictation" / "vocabulary.txt",
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                mtime = p.stat().st_mtime
+                if mtime != _vocab_mtime:
+                    terms = []
+                    for line in p.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            terms.append(line)
+                    _vocab_cache = ", ".join(terms)
+                    _vocab_mtime = mtime
+                    log.info(f"Loaded {len(terms)} custom vocabulary terms from {p}")
+                return _vocab_cache
+            except Exception as ex:
+                log.warning(f"Could not read vocabulary file {p}: {ex}")
+    return _vocab_cache
+
+_PROFILE_VOCAB_HINTS: dict[str, str] = {
+    "gmail": "Email correspondence: regards, sincerely, attachments, schedule, follow-up, meeting invite.",
+    "slack": "Team chat: standup, PR, merge, deployment, blocker, sprint, slack, channel, thread, ping, sync.",
+    "vscode": (
+        "Programming terms: async, await, mutex, semaphore, tokio, reqwest, serde, "
+        "PyTorch, CUDA, Kubernetes, microservices, REST API, GraphQL, OAuth2, JWT, "
+        "Rust, Svelte, Vite, Tauri, TypeScript, Python, backend, frontend."
     ),
     "medical": (
-        "Medical terminology: tachycardia, bradycardia, hypertension, "
-        "myocardial infarction, electrocardiogram, auscultation, "
-        "bronchodilator, corticosteroid, anaphylaxis, hematocrit."
+        "Medical terminology: tachycardia, bradycardia, hypertension, myocardial infarction, "
+        "electrocardiogram, auscultation, bronchodilator, corticosteroid, anaphylaxis, hematocrit."
     ),
     "legal": (
-        "Legal terminology: plaintiff, defendant, deposition, "
-        "habeas corpus, injunction, tort, indemnification, "
-        "affidavit, subpoena, jurisprudence, litigant."
+        "Legal terminology: plaintiff, defendant, deposition, habeas corpus, injunction, tort, "
+        "indemnification, affidavit, subpoena, jurisprudence, litigant."
     ),
-    "whatsapp": None,
-    "default":  None,
+    "whatsapp": "Chat message: hey, thanks, call me, check this out, see you soon, sounds good.",
+    "default": "Proper nouns and common terms: Mohamed Yasser, Kuz, Antigravity.",
 }
 
+def normalize_profile(profile: str) -> str:
+    """Robust fuzzy matching for profile strings (handles 'VS Code', 'visual-studio-code', etc.)."""
+    p = profile.lower().replace(" ", "").replace("-", "").replace("_", "")
+    if "vscode" in p or "code" in p or "cursor" in p:
+        return "vscode"
+    if "gmail" in p or "mail" in p or "outlook" in p:
+        return "gmail"
+    if "slack" in p or "discord" in p or "teams" in p:
+        return "slack"
+    if "whatsapp" in p or "telegram" in p:
+        return "whatsapp"
+    if "medical" in p:
+        return "medical"
+    if "legal" in p:
+        return "legal"
+    return "default"
 
-def build_initial_prompt(profile: str) -> str | None:
-    """Return Whisper vocabulary hints for the given profile to reduce WER."""
-    return _PROFILE_VOCAB_HINTS.get(profile.lower(), None)
+def build_initial_prompt(profile: str, custom_words: str | None = None) -> str | None:
+    """Construct a high-context initial_prompt to bias Whisper beam search."""
+    norm_profile = normalize_profile(profile)
+    profile_hints = _PROFILE_VOCAB_HINTS.get(norm_profile, "")
+    user_words = load_custom_vocabulary()
+
+    parts = []
+    if user_words:
+        parts.append(f"Proper nouns: {user_words}")
+    if custom_words and custom_words.strip():
+        parts.append(custom_words.strip())
+    if profile_hints:
+        parts.append(profile_hints)
+
+    if not parts:
+        return None
+    return ". ".join(parts) + "."
 
 
 # ---------------------------------------------------------------------------
@@ -225,9 +287,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 audio_b64 = req["audio_b64"]
                 sample_rate = int(req.get("sample_rate", 16000))
                 profile = req.get("profile", "default")
+                custom_words = req.get("custom_words", None)
 
                 audio = decode_pcm(audio_b64, sample_rate)
-                initial_prompt = build_initial_prompt(profile)
+                initial_prompt = build_initial_prompt(profile, custom_words)
                 transcript = transcribe(audio, initial_prompt)
 
                 duration_ms = int((time.perf_counter() - t0) * 1000)
